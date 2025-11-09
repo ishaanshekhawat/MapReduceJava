@@ -23,146 +23,83 @@ import org.apache.hadoop.util.ToolRunner;
 
 public class AverageJob extends Configured implements Tool {
 
-//	public enum Counters {MAP, COMBINE, REDUCE}
-//	
-//	public static class CustomPartitioner extends Partitioner<Text, Text> {
-//		public int getPartition(Text key, Text value, int numReduceTasks) {
-//			
-//			System.out.println("Inside Custom Partitioner");
-//			if (key.charAt(0) >= 'A' && key.charAt(0) <= 'M') {
-//				return 0 % numReduceTasks;
-//			}
-//			else {
-//				return 1 % numReduceTasks;
-//			}
-//		}
-//	}
+    // Mapper that appends a region label to each line
+    public static class AverageMapper extends Mapper<LongWritable, Text, NullWritable, Text> {
 
-	public static class AverageMapper extends Mapper<LongWritable, Text, NullWritable, Text> {
-//		public NullWritable outputKey = NullWritable.get();
-		public Text outputValue = new Text();
-//		public final String ONE = ",1";
-		
-		protected String setRegion(String Key) {
-			if (Key.charAt(0) >= 'A' && Key.charAt(0) <= 'M') {
-				return ", Southern";
-			}
-			else {
-				return ", Northern";
-			}
-		}
-		
-		@Override
-		protected void map(LongWritable key, Text value, Context context)
-				throws IOException, InterruptedException {
-			String currentLine = value.toString();
-			String [] words = StringUtils.split(currentLine,'\\', ',');
-			currentLine = currentLine.concat(setRegion(words[1].trim()));
-			outputValue.set(currentLine);
-			context.write(NullWritable.get(), outputValue);
-//			context.getCounter(Counters.MAP).increment(1);
-		}
+        public Text outputValue = new Text();
 
-//		@Override
-//		protected void cleanup(Context context)
-//				throws IOException, InterruptedException {
-//			System.out.println("MAP counter = " + context.getCounter(Counters.MAP).getValue());
-//			
-//		}
+        /**
+         * Adds a region label based on the first character of the county name.
+         * Counties starting with A-M are tagged as "Southern", others as "Northern".
+         */
+        protected String setRegion(String key) {
+            if (key.charAt(0) >= 'A' && key.charAt(0) <= 'M') {
+                return ", Southern";
+            } else {
+                return ", Northern";
+            }
+        }
 
+        /**
+         * Reads each input line, splits it, determines the region,
+         * appends the region string, and writes the updated line.
+         */
+        @Override
+        protected void map(LongWritable key, Text value, Context context)
+                throws IOException, InterruptedException {
 
-	}
+            String currentLine = value.toString();
 
-//	public static class AverageCombiner extends Reducer<Text, Text, Text, Text> {
-//		private Text outputValue = new Text();
-//		private String COMMA = ",";
-//		
-//		@Override
-//		protected void reduce(Text key, Iterable<Text> values, Context context)
-//				throws IOException, InterruptedException {
-//			long sum = 0;
-//			int count = 0;
-//			while(values.iterator().hasNext()) {
-//				String current = values.iterator().next().toString();
-//				String [] words = StringUtils.split(current,'\\', ',');
-//				sum += Long.parseLong(words[0]);
-//				count += Integer.parseInt(words[1]);
-//			}
-//			outputValue.set(sum + COMMA + count);
-//			context.write(key, outputValue);
-//			context.getCounter(Counters.COMBINE).increment(1);
-//		}		
-//
-//		@Override
-//		protected void cleanup(Context context)
-//				throws IOException, InterruptedException {
-//			System.out.println("COMBINE counter = " + context.getCounter(Counters.COMBINE).getValue());
-//		}
-//	}
-//
-//	public static class AverageReducer extends Reducer<Text, Text, Text, DoubleWritable> {
-//		DoubleWritable outputValue = new DoubleWritable();
-//		
-//		@Override
-//		protected void reduce(Text key, Iterable<Text> values, Context context)
-//				throws IOException, InterruptedException {
-//			long sum = 0;
-//			int count = 0;
-//			while(values.iterator().hasNext()) {
-//				String current = values.iterator().next().toString();
-//				String [] words = StringUtils.split(current,'\\',',');
-//				sum += Long.parseLong(words[0]);
-//				count += Integer.parseInt(words[1]);
-//			}
-//			outputValue.set(((double) sum)/count);
-//			context.write(key, outputValue);
-//			context.getCounter(Counters.REDUCE).increment(1);
-//		}
-//
-//		@Override
-//		protected void cleanup(Context context)
-//				throws IOException, InterruptedException {
-//			System.out.println("REDUCE counter = " + context.getCounter(Counters.REDUCE).getValue());
-//		}
-//	}
+            // Split line by comma. Extracts fields such as county name (words[1]).
+            String[] words = StringUtils.split(currentLine, '\\', ',');
 
-	@Override
-	public int run(String[] arg0) throws Exception {
-		Configuration conf = super.getConf();
-		Job job = Job.getInstance(conf, "AverageJob");
-		job.setJarByClass(AverageJob.class);
+            // Append region tag to the original line.
+            currentLine = currentLine.concat(setRegion(words[1].trim()));
 
-		Path out = new Path("averagenew");
-		out.getFileSystem(conf).delete(out, true);
-		FileInputFormat.setInputPaths(job, "counties");
-		FileOutputFormat.setOutputPath(job, out);
-		
-//		job.setPartitionerClass(CustomPartitioner.class);
-//		job.setNumReduceTasks(2);
+            outputValue.set(currentLine);
+            context.write(NullWritable.get(), outputValue);
+        }
+    }
 
-		job.setMapperClass(AverageMapper.class);
-//		job.setReducerClass(AverageReducer.class);
-//		job.setCombinerClass(AverageCombiner.class);
-		job.setInputFormatClass(TextInputFormat.class);
-		job.setOutputFormatClass(TextOutputFormat.class);
-		job.setOutputKeyClass(NullWritable.class);
-		job.setOutputValueClass(Text.class);
+    @Override
+    public int run(String[] args) throws Exception {
 
+        Configuration conf = super.getConf();
+        Job job = Job.getInstance(conf, "AverageJob");
+        job.setJarByClass(AverageJob.class);
 
-		return job.waitForCompletion(true)?0:1;
+        // Output path cleanup to avoid job failure due to existing directory.
+        Path out = new Path("averagenew");
+        out.getFileSystem(conf).delete(out, true);
 
-	}
+        // Set input and output directories.
+        FileInputFormat.setInputPaths(job, "counties");
+        FileOutputFormat.setOutputPath(job, out);
 
+        // Set mapper class only (no reducer --> map-only job).
+        job.setMapperClass(AverageMapper.class);
 
-	public static void main(String[] args) {
-		int result = 0;
-		try {
-			result = ToolRunner.run(new Configuration(),  new AverageJob(), args);
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-		System.exit(result);
+        // Set input & output format.
+        job.setInputFormatClass(TextInputFormat.class);
+        job.setOutputFormatClass(TextOutputFormat.class);
 
-	}
+        // Set output types.
+        job.setOutputKeyClass(NullWritable.class);
+        job.setOutputValueClass(Text.class);
 
+        // Execute job and return status code.
+        return job.waitForCompletion(true) ? 0 : 1;
+    }
+
+    public static void main(String[] args) {
+        int result = 0;
+        try {
+            // Run job using Hadoop ToolRunner.
+            result = ToolRunner.run(new Configuration(), new AverageJob(), args);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        System.exit(result);
+    }
 }
