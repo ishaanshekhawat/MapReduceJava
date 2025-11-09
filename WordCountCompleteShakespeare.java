@@ -2,10 +2,8 @@
  * WordCountCompleteShakespeare - A Hadoop MapReduce application for counting words
  * in Shakespeare's complete works while filtering out stop words.
  * 
- * Authors: 
- * - Aviram Dhagat (011)
- * - Ishaan Singh Shekhawat (021)
- * - Vineet Gupta (058)
+ * Author:
+ * - Ishaan Singh Shekhawat
  * 
  * Prerequisites:
  * - Stop words file (stop_words.txt) uploaded to HDFS at /user/cloudera/
