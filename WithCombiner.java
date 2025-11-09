@@ -19,57 +19,80 @@ import org.apache.hadoop.util.ToolRunner;
 
 import java.io.IOException;
 
+/**
+ * WordCount with a Combiner to reduce network shuffle.
+ * Combiner performs local aggregation: (word, 1,1,1,...) -> (word, partialSum)
+ *
+ * Note:
+ * - Combiners must be associative and commutative. This reducer is safe to reuse as a combiner.
+ */
 public class WordCountJob extends Configured implements Tool {
 	
+	/**
+	 * Mapper: emits (word, 1) for each token.
+	 */
 	public static class WordCountMapper extends Mapper<LongWritable, Text, Text, IntWritable> {
 
 		private static final IntWritable ONE = new IntWritable(1);
-		private Text outputKey = new Text();
+		private final Text outputKey = new Text();
 		
 		@Override
 		protected void map(LongWritable key, Text value, Context context)
 				throws IOException, InterruptedException {
 			String currentLine = value.toString();
-			String [] words = StringUtils.split(currentLine, ' ');
-			for(String word : words) {
+
+			// Naive whitespace split; consider better tokenization for production.
+			String[] words = StringUtils.split(currentLine, ' ');
+			for (String word : words) {
+				if (word == null || word.isEmpty()) continue;
 				outputKey.set(word);
 				context.write(outputKey, ONE);
 			}
 		}
-
 	}
 	
+	/**
+	 * Combiner: identical logic to reducer (sums counts).
+	 * Runs on mapper outputs before shuffle to reduce data volume.
+	 * IMPORTANT: Hadoop may run a combiner 0 or more times; do not rely on it always running.
+	 */
 	public static class WordCountCombiner extends Reducer<Text, IntWritable, Text, IntWritable> {
-		private IntWritable outputValue = new IntWritable();
+		private final IntWritable outputValue = new IntWritable();
 		
 		@Override
-		protected void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
-			int sum = 0;
-			for (IntWritable count : values) {
-				sum += count.get();
-			}
-		outputValue.set(sum);
-		context.write(key, outputValue);
-		}
-	}
-	
-	public static class WordCountReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
-		private IntWritable outputValue = new IntWritable();
-
-		@Override
-		protected void reduce(Text key, Iterable<IntWritable> values,
-				Context context)
+		protected void reduce(Text key, Iterable<IntWritable> values, Context context)
 				throws IOException, InterruptedException {
 			int sum = 0;
-			for(IntWritable count : values) {
+			for (IntWritable count : values) {
 				sum += count.get();
 			}
 			outputValue.set(sum);
 			context.write(key, outputValue);
 		}
-		
+	}
+	
+	/**
+	 * Reducer: final global aggregation (word -> totalCount).
+	 */
+	public static class WordCountReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
+		private final IntWritable outputValue = new IntWritable();
+
+		@Override
+		protected void reduce(Text key, Iterable<IntWritable> values, Context context)
+				throws IOException, InterruptedException {
+			int sum = 0;
+			for (IntWritable count : values) {
+				sum += count.get();
+			}
+			outputValue.set(sum);
+			context.write(key, outputValue);
+		}
 	}
 
+	/**
+	 * Job configuration and submission.
+	 * args[0] = input path, args[1] = output path
+	 */
 	@Override
 	public int run(String[] args) throws Exception {
 		Job job = Job.getInstance(getConf(), "WordCountJob");
@@ -78,37 +101,40 @@ public class WordCountJob extends Configured implements Tool {
 		
 		Path in = new Path(args[0]);
 		Path out = new Path(args[1]);
-		out.getFileSystem(conf).delete(out, true); //Code added by Amit
+
+		// WARNING: Force-deletes the output directory if it exists.
+		out.getFileSystem(conf).delete(out, true);
+
 		FileInputFormat.setInputPaths(job, in);
 		FileOutputFormat.setOutputPath(job, out);
 		
+		// Mapper / Reducer / Combiner
 		job.setMapperClass(WordCountMapper.class);
 		job.setReducerClass(WordCountReducer.class);
 		job.setCombinerClass(WordCountCombiner.class);
 		
+		// I/O formats
 		job.setInputFormatClass(TextInputFormat.class);
 		job.setOutputFormatClass(TextOutputFormat.class);
 		
+		// Map output types
 		job.setMapOutputKeyClass(Text.class);
 		job.setMapOutputValueClass(IntWritable.class);
+
+		// Final output types
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(IntWritable.class);
 		
-		return job.waitForCompletion(true)?0:1;
+		return job.waitForCompletion(true) ? 0 : 1;
 	}
 
 	public static void main(String[] args) {
 		int result = 0;
 		try {
-			result = ToolRunner.run(new Configuration(), 
-							new WordCountJob(),
-							args);
+			result = ToolRunner.run(new Configuration(), new WordCountJob(), args);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 		System.exit(result);
 	}
-
 }
-
-
