@@ -20,90 +20,101 @@ import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
 public class Grep extends Configured implements Tool {
-	
-	public static class GrepMapper extends
-			Mapper<LongWritable, Text, Text, IntWritable> {
-		private String searchString;
-		private Text outputValue = new Text();
-		private final static IntWritable ONE = new IntWritable(1);
-		@Override
-		protected void map(LongWritable key, Text value, Context context)
-				throws IOException, InterruptedException {
-			System.out.println("-----Inside map()-----");
-			String [] words = StringUtils.split(value.toString(),'\\', ' ');
-			for(String word: words) {
-				//TODO: Use the method from String class which check the whether the word contained searchStri
-				if(word.contains(searchString)) {
-					outputValue.set(word);
-					context.write(outputValue, ONE);
-				}
-			}
-		}
-		
-		//TODO: Complete the setup method call, 
-		//TODO: Look at the API doc and tell how many times this method will be called
-		@Override
-		protected void setup(Context context) throws IOException,
-				InterruptedException {
-			System.out.println("-----Inside setup()-----");
-			searchString = context.getConfiguration().get("searchString");
-		}
-		
-		
-	}
+    
+    // Mapper class that searches for words containing a given substring
+    public static class GrepMapper
+            extends Mapper<LongWritable, Text, Text, IntWritable> {
 
-	@Override
-	public int run(String[] args) throws Exception {
-		Job job = Job.getInstance(getConf(), "GrepJob");
-		Configuration conf = job.getConfiguration();
-		conf.set("searchString", args[2]);
-		job.setJarByClass(getClass());
-		
-		Path in = new Path(args[0]);
-		Path out = new Path(args[1]);
-		out.getFileSystem(conf).delete(out, true);
-		FileInputFormat.setInputPaths(job, in);
-		FileOutputFormat.setOutputPath(job, out);
-		
-		//TODO
-		job.setMapperClass(GrepMapper.class);
-		
-		// TODO
-		//Look at the API documentation for IntSumReducer class
-		job.setReducerClass(IntSumReducer.class);
-		
-		
-		job.setInputFormatClass(TextInputFormat.class);
-		job.setOutputFormatClass(TextOutputFormat.class);
-		
-		job.setMapOutputKeyClass(Text.class);
-		job.setMapOutputValueClass(IntWritable.class);
-		
-		//TODO
-		job.setOutputKeyClass(Text.class);
-		//TODO		
-		job.setOutputValueClass(IntWritable.class);
-		
-		return job.waitForCompletion(true)?0:1;
+        private String searchString;               // substring to search for
+        private Text outputValue = new Text();     // output key
+        private final static IntWritable ONE = new IntWritable(1); // constant output value
 
-	}
+        @Override
+        protected void map(LongWritable key, Text value, Context context)
+                throws IOException, InterruptedException {
 
-	/**
-	 * @param args
-	 */
-	public static void main(String[] args) {
-		int result = 0;
-		try {
-			result = ToolRunner.run(new Configuration(), 
-							new Grep(),
-							args);
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-		System.exit(result);
-	}
+            System.out.println("-----Inside map()-----");
+
+            // Split each input line into words. Delimiters: '\' and space.
+            String[] words = StringUtils.split(value.toString(), '\\', ' ');
+
+            for (String word : words) {
+
+                // Check if the current word contains the search substring
+                if (word.contains(searchString)) {
+                    outputValue.set(word);
+                    context.write(outputValue, ONE); // Emit (word, 1)
+                }
+            }
+        }
+
+        @Override
+        protected void setup(Context context)
+                throws IOException, InterruptedException {
+
+            System.out.println("-----Inside setup()-----");
+
+            // Retrieve the substring to search for from job configuration.
+            // This method runs once per Mapper task (not once per record).
+            searchString = context.getConfiguration().get("searchString");
+        }
+    }
+
+    @Override
+    public int run(String[] args) throws Exception {
+
+        // Create and configure a new MapReduce job instance
+        Job job = Job.getInstance(getConf(), "GrepJob");
+        Configuration conf = job.getConfiguration();
+
+        // Pass the search substring into the configuration for mappers to read
+        conf.set("searchString", args[2]);
+
+        job.setJarByClass(getClass());
+
+        // Input and output paths
+        Path in = new Path(args[0]);
+        Path out = new Path(args[1]);
+
+        // Clean output directory if it already exists
+        out.getFileSystem(conf).delete(out, true);
+
+        FileInputFormat.setInputPaths(job, in);
+        FileOutputFormat.setOutputPath(job, out);
+
+        // Set the Mapper class
+        job.setMapperClass(GrepMapper.class);
+
+        // Reducer that sums values for identical keys
+        // IntSumReducer emits (Text, IntWritable)
+        job.setReducerClass(IntSumReducer.class);
+
+        // Input and output formats
+        job.setInputFormatClass(TextInputFormat.class);
+        job.setOutputFormatClass(TextOutputFormat.class);
+
+        // Mapper output types
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(IntWritable.class);
+
+        // Final output types
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        // Run job and return 0 if success else 1
+        return job.waitForCompletion(true) ? 0 : 1;
+    }
+
+    public static void main(String[] args) {
+        int result = 0;
+        try {
+            // Launch the Hadoop job using the ToolRunner helper
+            result = ToolRunner.run(new Configuration(),
+                    new Grep(),
+                    args);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        System.exit(result);
+    }
 }
-
-//TODO
-// Run the application by giving following command
-// 1. yarn jar grep.jar constitution.txt grep_output the
